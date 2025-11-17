@@ -1,44 +1,157 @@
 pipeline {
     agent { docker { image 'alpine/git' } }
 
+    parameters {
+        choice(
+            name: 'DEPLOY_ENVIRONMENT',
+            choices: ['dev', 'qa', 'prod'],
+            description: 'Select environment to deploy (dev=MR, qa=tag, prod=manual promotion)'
+        )
+        string(
+            name: 'IMAGE_TAG_OVERRIDE',
+            defaultValue: '',
+            description: 'Optional: Override image tag (leave empty to use auto-generated tag)'
+        )
+    }
+
     environment {
         # Image name is now local and does not require a Docker Hub username prefix
         DOCKER_IMAGE_NAME = 'poc-web-app'
-        # Creates a unique tag based on the Jenkins build number
-        IMAGE_TAG = "build-${env.BUILD_NUMBER}"
-        # Path to the GitOps repo mounted via Docker Compose volume
-        K8S_CONFIG_PATH = '/var/jenkins_home/workspace/gitops-config/deployment-dev.yaml'
+        
+        // Determine image tag based on trigger type
+        // For tags: use the tag name
+        // For MRs: use build number
+        // For manual: use build number or override
+        IMAGE_TAG = "${params.IMAGE_TAG_OVERRIDE ?: (env.TAG_NAME ?: "build-${env.BUILD_NUMBER}")}"
+        
+        // Determine target environment
+        TARGET_ENV = "${params.DEPLOY_ENVIRONMENT}"
+        
+        // Path to the GitOps repo mounted via Docker Compose volume
+        K8S_CONFIG_BASE = '/var/jenkins_home/workspace/gitops-config'
     }
 
     stages {
+        stage('Detect Deployment Type') {
+            steps {
+                script {
+                    echo "=========================================="
+                    echo "Deployment Type Detection"
+                    echo "=========================================="
+                    
+                    // Detect if triggered by tag
+                    if (env.TAG_NAME) {
+                        echo "Triggered by TAG: ${env.TAG_NAME}"
+                        echo "Target Environment: QA (automatic for tags)"
+                        env.TARGET_ENV = 'qa'
+                    }
+                    // Detect if triggered by merge request (branch merge)
+                    else if (env.BRANCH_NAME && env.BRANCH_NAME.startsWith('merge/')) {
+                        echo "Triggered by MERGE REQUEST: ${env.BRANCH_NAME}"
+                        echo "Target Environment: DEV (automatic for MRs)"
+                        env.TARGET_ENV = 'dev'
+                    }
+                    // Manual promotion (user-selected)
+                    else if (params.DEPLOY_ENVIRONMENT == 'prod') {
+                        echo "Manual PRODUCTION Promotion"
+                        echo "Target Environment: PROD"
+                        env.TARGET_ENV = 'prod'
+                    }
+                    // Default: dev for regular builds
+                    else {
+                        echo "Regular build - defaulting to DEV"
+                        env.TARGET_ENV = params.DEPLOY_ENVIRONMENT ?: 'dev'
+                    }
+                    
+                    echo "Final Target Environment: ${env.TARGET_ENV}"
+                    echo "Image Tag: ${IMAGE_TAG}"
+                    echo "=========================================="
+                }
+            }
+        }
+
         stage('Build Local Docker Image') {
             steps {
                 script {
-                    echo "Starting local build for tag: ${IMAGE_TAG}"
+                    echo "Building Docker image for ${env.TARGET_ENV} environment"
+                    echo "Image: ${DOCKER_IMAGE_NAME}:${IMAGE_TAG}"
+                    
                     // Build the Docker image. Docker Desktop K8s uses this local cache.
                     docker.build("${DOCKER_IMAGE_NAME}:${IMAGE_TAG}", ".")
-                    echo "Image built locally: ${DOCKER_IMAGE_NAME}:${IMAGE_TAG}"
+                    
+                    echo "✓ Image built locally: ${DOCKER_IMAGE_NAME}:${IMAGE_TAG}"
                 }
             }
         }
 
         stage('Update GitOps Manifest') {
             steps {
-                sh """
-                # 1. Update the image tag in the K8s deployment manifest (Simulates a git commit)
-                echo "Updating K8s deployment file at ${K8S_CONFIG_PATH} with new image tag: ${IMAGE_TAG}"
+                script {
+                    def deploymentFile = "${K8S_CONFIG_BASE}/deployment-${env.TARGET_ENV}.yaml"
+                    
+                    echo "=========================================="
+                    echo "Updating GitOps Manifest"
+                    echo "=========================================="
+                    echo "Target Environment: ${env.TARGET_ENV}"
+                    echo "Deployment File: ${deploymentFile}"
+                    echo "New Image Tag: ${IMAGE_TAG}"
+                    echo "=========================================="
+                    
+                    sh """
+                        # Update the image tag in the K8s deployment manifest
+                        echo "Updating ${deploymentFile} with image tag: ${IMAGE_TAG}"
+                        
+                        # Use sed to replace the placeholder image tag with the new image tag
+                        sed -i "s|image: ${DOCKER_IMAGE_NAME}:v0.0.0-PLACEHOLDER|image: ${DOCKER_IMAGE_NAME}:${IMAGE_TAG}|g" ${deploymentFile}
+                        sed -i "s|image: ${DOCKER_IMAGE_NAME}:build-[0-9]*|image: ${DOCKER_IMAGE_NAME}:${IMAGE_TAG}|g" ${deploymentFile}
+                        sed -i "s|image: ${DOCKER_IMAGE_NAME}:v[0-9.]*|image: ${DOCKER_IMAGE_NAME}:${IMAGE_TAG}|g" ${deploymentFile}
+                        
+                        echo "✓ GitOps config updated for ${env.TARGET_ENV} environment"
+                        echo "ArgoCD will automatically detect this change and deploy to ${env.TARGET_ENV} namespace"
+                    """
+                }
+            }
+        }
 
-                # Use sed to replace the placeholder image tag with the new image tag
-                sed -i "s|image: ${DOCKER_IMAGE_NAME}:v0.0.0-PLACEHOLDER|image: ${DOCKER_IMAGE_NAME}:${IMAGE_TAG}|g" ${K8S_CONFIG_PATH}
-
-                # 2. ArgoCD will now automatically detect this change and deploy the new image from the local cache.
-                echo "GitOps config updated. ArgoCD is expected to deploy the new image shortly."
-                """
+        stage('Production Approval Gate') {
+            when {
+                expression { env.TARGET_ENV == 'prod' }
+            }
+            steps {
+                script {
+                    echo "=========================================="
+                    echo "PRODUCTION DEPLOYMENT APPROVAL REQUIRED"
+                    echo "=========================================="
+                    echo "This is a PRODUCTION deployment!"
+                    echo "Image: ${DOCKER_IMAGE_NAME}:${IMAGE_TAG}"
+                    echo "Environment: ${env.TARGET_ENV}"
+                    echo ""
+                    echo "Please review the deployment before proceeding."
+                    echo "The manifest has been updated and ArgoCD will deploy once synced."
+                    echo "=========================================="
+                    
+                    // In a real scenario, you might add an input step here:
+                    // input message: "Approve Production Deployment?"
+                }
             }
         }
     }
 
     post {
+        success {
+            echo "=========================================="
+            echo "✓ Deployment Pipeline Completed Successfully"
+            echo "Environment: ${env.TARGET_ENV}"
+            echo "Image: ${DOCKER_IMAGE_NAME}:${IMAGE_TAG}"
+            echo "ArgoCD will automatically sync the changes"
+            echo "=========================================="
+        }
+        failure {
+            echo "=========================================="
+            echo "✗ Deployment Pipeline Failed"
+            echo "Please check the logs above for details"
+            echo "=========================================="
+        }
         always {
             echo 'Pipeline finished.'
         }
