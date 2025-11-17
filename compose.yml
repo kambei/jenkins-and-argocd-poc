@@ -1,0 +1,20 @@
+services:
+  jenkins:
+    image: jenkins/jenkins:lts
+    user: root # Needed for Docker socket permissions
+    privileged: true
+    ports:
+      - "8080:8080" # Jenkins UI
+      - "50000:50000" # Jenkins agents
+    volumes:
+      # Mount Docker socket to allow Jenkins to use the host's Docker daemon
+      - /var/run/docker.sock:/var/run/docker.sock
+      # Mount local app code as Jenkins workspace for CI job
+      - ./app:/var/jenkins_home/workspace/simple-app
+      # Mount k8s-config repo to simulate the GitOps repository clone
+      - ./k8s-config:/var/jenkins_home/workspace/gitops-config
+      - jenkins_home:/var/jenkins_home
+    restart: unless-stopped
+
+volumes:
+  jenkins_home:
