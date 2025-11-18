@@ -195,30 +195,138 @@ ArgoCD will now deploy the apps using the initial placeholder tag (`poc-web-app:
     
     - Click **New Item** -> Name it `Simple-App-CI` -> Select **Pipeline**.
         
-    - Under the Pipeline section, select **Pipeline script from SCM**.
+    - Under the Pipeline section, select **Pipeline script** (not "Pipeline script from SCM").
         
-    - **SCM:** `Git`
+    - In the script text area, copy and paste the entire contents of `app/Jenkinsfile` from your local machine.
         
-    - **Repository URL:** `/var/jenkins_home/workspace/simple-app` (The internal path within the Jenkins container).
+        **Quick way to get the content:** Open `app/Jenkinsfile` in a text editor, select all (Ctrl+A / Cmd+A), copy (Ctrl+C / Cmd+C), then paste into Jenkins.
         
-    - **Script Path:** `Jenkinsfile`
+    **Why this approach?** Using "Pipeline script" directly ensures Jenkins can immediately parse and discover the parameters defined in the Jenkinsfile, which is required for "Build with Parameters" to appear.
         
     - Click **Save**.
         
+    **Important:** After saving, you must click **"Build Now"** at least once. This allows Jenkins to parse the pipeline and discover the parameters. After the first build (even if it fails), the **"Build with Parameters"** option will appear in the job's left sidebar.
+
+### Troubleshooting: "Build with Parameters" Not Appearing
+
+If "Build with Parameters" still doesn't appear after following Step 5, try these solutions:
+
+**Solution 1: Use a Minimal Test Pipeline First**
+
+1. Go to your `Simple-App-CI` job and click **Configure**.
+2. Temporarily replace the pipeline script with this minimal version to test parameter discovery:
+
+    ```groovy
+    pipeline {
+        agent any
+        
+        parameters {
+            choice(
+                name: 'DEPLOY_ENVIRONMENT',
+                choices: ['dev', 'qa', 'prod'],
+                description: 'Select environment to deploy'
+            )
+            string(
+                name: 'IMAGE_TAG_OVERRIDE',
+                defaultValue: '',
+                description: 'Optional: Override image tag'
+            )
+        }
+        
+        stages {
+            stage('Test') {
+                steps {
+                    echo "Environment: ${params.DEPLOY_ENVIRONMENT}"
+                    echo "Tag Override: ${params.IMAGE_TAG_OVERRIDE}"
+                }
+            }
+        }
+    }
+    ```
+
+3. Click **Save**, then click **Build Now**.
+4. Check if "Build with Parameters" appears. If it does, replace the script with the full Jenkinsfile content and save again.
+
+**Solution 2: Check for Pipeline Syntax Errors**
+
+1. After clicking "Build Now", check the build console output for any syntax errors.
+2. Look for errors related to:
+   - Docker agent availability
+   - Missing plugins
+   - Syntax issues in the pipeline
+3. Fix any errors and try again.
+
+**Solution 3: Temporarily Use `agent any`**
+
+If the Docker agent is causing issues, temporarily modify the first line of your pipeline script from:
+```groovy
+agent { docker { image 'alpine/git' } }
+```
+to:
+```groovy
+agent any
+```
+This will use any available Jenkins agent. After parameters are discovered, you can change it back.
+
+**Solution 4: Manual Parameter Configuration (Last Resort)**
+
+If none of the above work, you can manually configure parameters:
+
+1. Go to your `Simple-App-CI` job and click **Configure**.
+2. Scroll down and check **"This project is parameterized"**.
+3. Click **"Add Parameter"** → **"Choice Parameter"**:
+   - **Name:** `DEPLOY_ENVIRONMENT`
+   - **Choices:** `dev`, `qa`, `prod` (one per line)
+   - **Description:** `Select environment to deploy`
+4. Click **"Add Parameter"** again → **"String Parameter"**:
+   - **Name:** `IMAGE_TAG_OVERRIDE`
+   - **Default Value:** (leave empty)
+   - **Description:** `Optional: Override image tag`
+5. Click **Save**.
+6. Now "Build with Parameters" should appear. You can use the pipeline script as-is, and it will use these manually configured parameters.
+
+**Solution 5: Parameters Are Configured But "Build with Parameters" Link Missing**
+
+If you can see the parameters in the job configuration under "This project is parameterized" but the "Build with Parameters" link doesn't appear in the UI, try these workarounds:
+
+**Option A: Access via Direct URL**
+1. The "Build with Parameters" page is always available at this URL pattern:
+   ```
+   http://localhost:8080/job/Simple-App-CI/build?delay=0sec
+   ```
+   Replace `Simple-App-CI` with your actual job name if different.
+
+2. You can bookmark this URL or access it directly from your browser.
+
+**Option B: Check the Build History Section**
+1. Sometimes the link appears in the "Build History" section on the right side of the job page.
+2. Look for a dropdown arrow next to "Build Now" - it might be there.
+
+**Option C: Use the REST API or Command Line**
+You can trigger builds with parameters using:
+```bash
+curl -X POST "http://localhost:8080/job/Simple-App-CI/buildWithParameters" \
+  --user admin:YOUR_PASSWORD \
+  --data "DEPLOY_ENVIRONMENT=dev&IMAGE_TAG_OVERRIDE="
+```
+
+**Option D: Refresh Jenkins UI**
+1. Try hard refreshing your browser (Ctrl+F5 or Cmd+Shift+R)
+2. Clear browser cache
+3. Try accessing Jenkins in an incognito/private window
+4. Restart Jenkins container: `docker compose restart jenkins`
+
+**Option E: Check Jenkins Plugins**
+Ensure you have the "Build with Parameters" plugin installed:
+1. Go to **Manage Jenkins** → **Manage Plugins** → **Installed**
+2. Search for "Build with Parameters" or "Parameterized Build"
+3. If missing, install it from the **Available** tab
+
+**Most Reliable Workaround:** Use Option A (direct URL) - it will always work if parameters are configured.
 
 ## Step 6: Multi-Environment Deployment Scenarios
 
-**Important:** Before you can use "Build with Parameters", Jenkins needs to discover the parameters defined in the Jenkinsfile. To enable this:
-
-1. In Jenkins, go to the `Simple-App-CI` job.
-2. Click **"Build Now"** (the regular build button) to run the pipeline once.
-3. After the first build completes (or even if it fails), Jenkins will discover the parameters.
-4. The **"Build with Parameters"** option will now appear in the job's left sidebar.
-
-**Alternative:** If you prefer to configure parameters manually before the first run:
-- Go to the job configuration (click **"Configure"**)
-- Scroll to the **"Build Triggers"** or **"Pipeline"** section
-- Jenkins should automatically detect parameters from the Jenkinsfile after saving
+**Note:** If parameters are configured (visible in job configuration), you can access "Build with Parameters" via the direct URL: `http://localhost:8080/job/Simple-App-CI/build?delay=0sec` even if the link doesn't appear in the UI.
 
 The Jenkins pipeline supports three deployment scenarios based on how it's triggered:
 
@@ -227,7 +335,9 @@ The Jenkins pipeline supports three deployment scenarios based on how it's trigg
 **Simulating a Merge Request deployment:**
 
 1. In Jenkins, go to `Simple-App-CI` job.
-2. Click **"Build with Parameters"**.
+2. Access **"Build with Parameters"**:
+   - If the link appears in the left sidebar, click it
+   - **OR** navigate directly to: `http://localhost:8080/job/Simple-App-CI/build?delay=0sec`
 3. Select **DEPLOY_ENVIRONMENT:** `dev`
 4. Leave **IMAGE_TAG_OVERRIDE** empty (or specify a custom tag).
 5. Click **"Build"**.
@@ -249,7 +359,7 @@ kubectl get svc -n dev
 
 1. In Jenkins, configure the job to trigger on tags (or manually trigger with tag).
 2. For manual simulation:
-   - Click **"Build with Parameters"**
+   - Access **"Build with Parameters"** (link in sidebar or direct URL: `http://localhost:8080/job/Simple-App-CI/build?delay=0sec`)
    - Select **DEPLOY_ENVIRONMENT:** `qa`
    - In **IMAGE_TAG_OVERRIDE**, enter a tag like `v1.0.0` or `qa-release-1`
    - Click **"Build"**
@@ -270,7 +380,7 @@ kubectl get svc -n qa
 **Manual Production Promotion:**
 
 1. In Jenkins, go to `Simple-App-CI` job.
-2. Click **"Build with Parameters"**.
+2. Access **"Build with Parameters"** (link in sidebar or direct URL: `http://localhost:8080/job/Simple-App-CI/build?delay=0sec`).
 3. Select **DEPLOY_ENVIRONMENT:** `prod`
 4. In **IMAGE_TAG_OVERRIDE**, enter the image tag you want to promote (e.g., `build-5` or `v1.0.0`)
 5. Click **"Build"**.

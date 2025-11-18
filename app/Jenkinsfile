@@ -15,7 +15,7 @@ pipeline {
     }
 
     environment {
-        # Image name is now local and does not require a Docker Hub username prefix
+        // Image name is now local and does not require a Docker Hub username prefix
         DOCKER_IMAGE_NAME = 'poc-web-app'
         
         // Determine image tag based on trigger type
