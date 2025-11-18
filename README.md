@@ -35,9 +35,12 @@ Ensure your local directory matches this structure:
 │   ├── Dockerfile           # App build file
 │   └── Jenkinsfile          # The CI pipeline script (multi-environment support)
 └── k8s-config/
-    ├── deployment-dev.yaml  # Dev environment K8s manifest
-    ├── deployment-qa.yaml   # QA environment K8s manifest
-    └── deployment-prod.yaml # Prod environment K8s manifest
+    ├── dev/
+    │   └── deployment.yaml  # Dev environment K8s manifest
+    ├── qa/
+    │   └── deployment.yaml  # QA environment K8s manifest
+    └── prod/
+        └── deployment.yaml  # Prod environment K8s manifest
 ```
 
 ## Step 1: Create Kubernetes Namespaces
@@ -56,21 +59,25 @@ Verify namespaces were created:
 kubectl get namespaces | grep -E "dev|qa|prod"
 ```
 
-## Step 2: Initialize the GitOps Repository
+## Step 2: Verify GitOps Repository Setup
 
-For this local POC, we simulate the GitOps repository using the local `k8s-config` directory.
+Since this project is already a Git repository, the `k8s-config` directory is part of the main repository. No separate Git initialization is needed.
 
-1. Open your terminal and navigate to the root of your project.
-    
-2. Initialize the configuration folder as a Git repository:
+1. Verify that the k8s-config files are tracked in Git:
     
     ```bash
-    cd k8s-config
-    git init
-    git add .
-    git commit -m "Initial K8s multi-environment deployment manifests"
-    cd ..
+    git status
+    git ls-files k8s-config/
     ```
+    
+2. If the files are not yet committed, add and commit them:
+    
+    ```bash
+    git add k8s-config/
+    git commit -m "Initial K8s multi-environment deployment manifests"
+    ```
+    
+**Note:** The `k8s-config` directory is mounted into Jenkins at `/var/jenkins_home/workspace/gitops-config` via Docker Compose, allowing Jenkins to update the manifests directly. ArgoCD will monitor this directory for changes.
     
 
 ## Step 3: Install ArgoCD on Kubernetes
@@ -81,7 +88,7 @@ ArgoCD is installed directly into your local Kubernetes cluster.
     
     ```
     kubectl create namespace argocd
-    kubectl apply -n argocd -f [https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml](https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml)
+    kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
     ```
     
 2. **Access ArgoCD UI:**
@@ -98,7 +105,13 @@ ArgoCD is installed directly into your local Kubernetes cluster.
     
     - The username is `admin`. Get the auto-generated password:
         
+        **For Windows (PowerShell):**
+        ```powershell
+        $password = kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}"; [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($password))
         ```
+        
+        **For Linux/Mac:**
+        ```bash
         kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 -d; echo
         ```
         
@@ -123,11 +136,13 @@ Create separate ArgoCD applications to monitor and deploy to each environment na
         
 4. **Source Settings:**
     
-    - **Repository URL:** The local path: `/k8s-config`
+    - **Repository URL:** Use the absolute path to your project's git repository. For Windows, use the format: `file:///D:/WORK/POC/jenkins-and-argocd` (adjust the path to match your actual workspace location). For Linux/Mac, use: `file:///path/to/jenkins-and-argocd`
         
-    - **Revision:** `HEAD`
+    - **Revision:** `HEAD` (or `main`/`master` depending on your default branch)
         
-    - **Path:** `deployment-dev.yaml`
+    - **Path:** `k8s-config/dev`
+        
+    **Note:** Since ArgoCD runs in Kubernetes, you may need to mount the repository directory into the ArgoCD pod, or use a local git server. For a simpler local-only setup, you can also configure ArgoCD to use the directory path directly if your Kubernetes cluster can access the host filesystem.
         
 5. **Destination Settings:**
     
@@ -142,7 +157,8 @@ Create separate ArgoCD applications to monitor and deploy to each environment na
 Repeat the process with these settings:
 
 - **Application Name:** `poc-ci-cd-qa`
-- **Path:** `deployment-qa.yaml`
+- **Repository URL:** Same as DEV (your project's git repository path)
+- **Path:** `k8s-config/qa`
 - **Namespace:** `qa`
 - **Sync Policy:** `Automatic` (with **Prune** and **Self Heal** enabled)
 
@@ -151,7 +167,8 @@ Repeat the process with these settings:
 Repeat the process with these settings:
 
 - **Application Name:** `poc-ci-cd-prod`
-- **Path:** `deployment-prod.yaml`
+- **Repository URL:** Same as DEV (your project's git repository path)
+- **Path:** `k8s-config/prod`
 - **Namespace:** `prod`
 - **Sync Policy:** `Manual` (recommended for production - requires manual sync approval)
 
@@ -205,7 +222,7 @@ The Jenkins pipeline supports three deployment scenarios based on how it's trigg
 
 **What happens:**
 - Jenkins builds the Docker image with tag `build-{BUILD_NUMBER}`
-- Updates `k8s-config/deployment-dev.yaml` with the new image tag
+- Updates `k8s-config/dev/deployment.yaml` with the new image tag
 - ArgoCD detects the change and automatically syncs to the `dev` namespace
 
 **Verify deployment:**
@@ -227,7 +244,7 @@ kubectl get svc -n dev
 
 **What happens:**
 - Jenkins builds the Docker image with the specified tag
-- Updates `k8s-config/deployment-qa.yaml` with the new image tag
+- Updates `k8s-config/qa/deployment.yaml` with the new image tag
 - ArgoCD detects the change and automatically syncs to the `qa` namespace
 
 **Verify deployment:**
@@ -248,7 +265,7 @@ kubectl get svc -n qa
 
 **What happens:**
 - Jenkins builds/promotes the Docker image
-- Updates `k8s-config/deployment-prod.yaml` with the new image tag
+- Updates `k8s-config/prod/deployment.yaml` with the new image tag
 - ArgoCD detects the change but **requires manual sync** (if configured with Manual sync policy)
 - In ArgoCD UI, go to `poc-ci-cd-prod` application and click **"Sync"** to deploy
 

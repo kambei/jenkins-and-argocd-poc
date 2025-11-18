@@ -87,7 +87,7 @@ pipeline {
         stage('Update GitOps Manifest') {
             steps {
                 script {
-                    def deploymentFile = "${K8S_CONFIG_BASE}/deployment-${env.TARGET_ENV}.yaml"
+                    def deploymentFile = "${K8S_CONFIG_BASE}/${env.TARGET_ENV}/deployment.yaml"
                     
                     echo "=========================================="
                     echo "Updating GitOps Manifest"

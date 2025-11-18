@@ -2,12 +2,12 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: poc-app-deployment
-  namespace: prod
+  namespace: qa
   labels:
     app: poc-app
-    environment: prod
+    environment: qa
 spec:
-  replicas: 2
+  replicas: 1
   selector:
     matchLabels:
       app: poc-app
@@ -15,7 +15,7 @@ spec:
     metadata:
       labels:
         app: poc-app
-        environment: prod
+        environment: qa
     spec:
       containers:
       - name: poc-app-container
@@ -28,7 +28,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: poc-app-service
-  namespace: prod
+  namespace: qa
 spec:
   selector:
     app: poc-app
@@ -37,4 +37,5 @@ spec:
       port: 80
       targetPort: 80
   type: LoadBalancer
+
 
