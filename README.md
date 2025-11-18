@@ -182,11 +182,13 @@ ArgoCD will now deploy the apps using the initial placeholder tag (`poc-web-app:
     
     ```
     # (Inside your project root)
-    # Start Jenkins (Docker CLI will be installed automatically via init script)
-    docker compose up -d
+    # Build and start Jenkins (builds custom image with Docker CLI pre-installed)
+    docker compose up -d --build
     ```
     
-    **Note:** The Jenkins container will automatically install Docker CLI on startup using an init script. This is necessary for the pipeline to build Docker images. The first startup may take a minute or two while Docker CLI is being installed.
+    **Note:** The first time you run this, it will build a custom Jenkins image (`Dockerfile.jenkins`) that includes Docker CLI. This is necessary for the pipeline to build Docker images. The build may take a few minutes. Subsequent starts can use `docker compose up -d` without `--build`.
+    
+    **Works on both Windows and Linux:** The Dockerfile approach works reliably on both Windows (Docker Desktop) and Linux hosts.
 
 ### Option B: Jenkins Installed Natively on Windows
 
@@ -302,19 +304,25 @@ If "Build with Parameters" still doesn't appear after following Step 5, try thes
 
 **Solution 2: "docker: not found" Error**
 
-If you see `docker: not found` in the build logs, the Docker CLI installation may have failed:
+If you see `docker: not found` in the build logs, the Docker CLI may not be installed in the Jenkins container:
 
-1. Check the Jenkins container logs to see if Docker CLI was installed:
+1. **Rebuild the Jenkins image** to ensure Docker CLI is installed:
    ```bash
-   docker logs jenkins | grep -i docker
+   docker compose down
+   docker compose up -d --build
    ```
 
-2. Restart Jenkins to re-run the installation script:
+2. Verify Docker CLI is installed in the container:
    ```bash
-   docker compose restart jenkins
+   docker exec jenkins docker --version
    ```
+   You should see the Docker version. If not, the image build may have failed.
 
-3. Wait for Jenkins to fully start (check logs: `docker logs -f jenkins`), then try building again.
+3. Check the image build logs if needed:
+   ```bash
+   docker compose build --no-cache jenkins
+   docker compose up -d
+   ```
 
 **Alternative: Install Docker Pipeline Plugin**
 
@@ -323,7 +331,7 @@ You can also install the **Docker Pipeline** plugin from Jenkins UI:
 2. Search for "Docker Pipeline" and install it
 3. However, you still need Docker CLI installed in the container for it to work
 
-**Note:** The current setup uses shell commands (`docker build`) which requires Docker CLI. If you prefer using the Docker Pipeline plugin's `docker.build()` method, you'll still need Docker CLI installed in the container.
+**Note:** The current setup uses a custom Dockerfile (`Dockerfile.jenkins`) that pre-installs Docker CLI. This works reliably on both Windows and Linux hosts. The setup uses shell commands (`docker build`) which requires Docker CLI.
 
 **Solution 3: Check for Pipeline Syntax Errors**
 
