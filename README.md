@@ -208,6 +208,18 @@ ArgoCD will now deploy the apps using the initial placeholder tag (`poc-web-app:
 
 ## Step 6: Multi-Environment Deployment Scenarios
 
+**Important:** Before you can use "Build with Parameters", Jenkins needs to discover the parameters defined in the Jenkinsfile. To enable this:
+
+1. In Jenkins, go to the `Simple-App-CI` job.
+2. Click **"Build Now"** (the regular build button) to run the pipeline once.
+3. After the first build completes (or even if it fails), Jenkins will discover the parameters.
+4. The **"Build with Parameters"** option will now appear in the job's left sidebar.
+
+**Alternative:** If you prefer to configure parameters manually before the first run:
+- Go to the job configuration (click **"Configure"**)
+- Scroll to the **"Build Triggers"** or **"Pipeline"** section
+- Jenkins should automatically detect parameters from the Jenkinsfile after saving
+
 The Jenkins pipeline supports three deployment scenarios based on how it's triggered:
 
 ### Scenario 1: Deploy to DEV via Merge Request (MR)
