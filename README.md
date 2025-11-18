@@ -17,11 +17,22 @@ This POC supports three deployment scenarios:
 
 ## Prerequisites
 
-1. **Docker Desktop:** Installed, running, and **Kubernetes enabled** (Settings -> Kubernetes -> Enable Kubernetes). The local K8s cluster uses the host's local Docker image cache, which is essential for this POC.
+1. **Docker Desktop:** Installed and running.
     
-2. **kubectl:** Installed and configured to interact with your Docker Desktop K8s cluster.
+2. **Kubernetes Cluster:** One of the following:
+   - **Docker Desktop Kubernetes** (Settings -> Kubernetes -> Enable Kubernetes) - Images are automatically available
+   - **kind (Kubernetes in Docker)** - Images need to be loaded into the cluster (the Jenkinsfile handles this automatically)
     
-3. **Git:** Installed for setting up the simulated GitOps repository.
+3. **kubectl:** Installed and configured to interact with your Kubernetes cluster.
+    
+4. **kind (if using kind):** Installed if you're using kind instead of Docker Desktop's built-in Kubernetes.
+   ```bash
+   # Install kind (if not already installed)
+   # Windows: choco install kind
+   # Or download from: https://kind.sigs.k8s.io/docs/user/quick-start/#installation
+   ```
+    
+5. **Git:** Installed for setting up the simulated GitOps repository.
     
 
 ## Project Structure
@@ -332,6 +343,31 @@ You can also install the **Docker Pipeline** plugin from Jenkins UI:
 3. However, you still need Docker CLI installed in the container for it to work
 
 **Note:** The current setup uses a custom Dockerfile (`Dockerfile.jenkins`) that pre-installs Docker CLI. This works reliably on both Windows and Linux hosts. The setup uses shell commands (`docker build`) which requires Docker CLI.
+
+**Solution 2.1: Using kind - Load Images Manually**
+
+If you're using **kind** (Kubernetes in Docker) and images aren't available after building:
+
+1. **Build the image** (if not already built):
+   ```bash
+   cd app
+   docker build -t poc-web-app:v0.0.0-PLACEHOLDER .
+   ```
+
+2. **Load the image into your kind cluster:**
+   ```bash
+   # Find your kind cluster name
+   kind get clusters
+   
+   # Load the image (replace 'kind' with your cluster name if different)
+   kind load docker-image poc-web-app:v0.0.0-PLACEHOLDER --name kind
+   ```
+
+3. **For future builds from Jenkins**, the Jenkinsfile will automatically try to load images into kind if the `kind` command is available. However, if Jenkins is running in Docker, you may need to:
+   - Mount the kind binary into the Jenkins container, OR
+   - Load images manually after each Jenkins build
+
+**Note:** The Jenkinsfile includes a stage that automatically detects and loads images into kind clusters. If Jenkins is in a container and can't access `kind`, you'll need to load images manually from your host machine.
 
 **Solution 3: Check for Pipeline Syntax Errors**
 

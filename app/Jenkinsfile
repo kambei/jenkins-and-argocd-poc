@@ -77,13 +77,34 @@ pipeline {
                     echo "Image: ${DOCKER_IMAGE_NAME}:${IMAGE_TAG}"
                     
                     // Build the Docker image using shell commands (Docker socket is mounted)
-                    // Docker Desktop K8s uses this local cache.
                     sh """
                         cd /var/jenkins_home/workspace/simple-app
                         docker build -t ${DOCKER_IMAGE_NAME}:${IMAGE_TAG} .
                     """
                     
                     echo "✓ Image built locally: ${DOCKER_IMAGE_NAME}:${IMAGE_TAG}"
+                }
+            }
+        }
+
+        stage('Load Image into Kind Cluster') {
+            steps {
+                script {
+                    echo "Loading Docker image into kind cluster..."
+                    
+                    // Load the image into kind cluster (required for kind, not needed for Docker Desktop K8s)
+                    // Check if kind is available, if not, skip this step (assumes Docker Desktop K8s)
+                    sh """
+                        if command -v kind &> /dev/null; then
+                            echo "Kind detected - loading image into cluster..."
+                            KIND_CLUSTER_NAME=\$(kubectl config current-context | cut -d'/' -f2 2>/dev/null || echo "kind")
+                            kind load docker-image ${DOCKER_IMAGE_NAME}:${IMAGE_TAG} --name \${KIND_CLUSTER_NAME} || echo "Warning: Could not load image into kind cluster"
+                        else
+                            echo "Kind not found - assuming Docker Desktop Kubernetes (images available automatically)"
+                        fi
+                    """
+                    
+                    echo "✓ Image available for Kubernetes deployment"
                 }
             }
         }
