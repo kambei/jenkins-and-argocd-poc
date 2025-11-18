@@ -176,18 +176,71 @@ ArgoCD will now deploy the apps using the initial placeholder tag (`poc-web-app:
 
 ## Step 5: Configure and Run Jenkins (CI)
 
+### Option A: Jenkins in Docker (Recommended for this POC)
+
 1. **Start Jenkins Container:**
     
     ```
     # (Inside your project root)
+    # Start Jenkins (Docker CLI will be installed automatically via init script)
     docker compose up -d
     ```
     
+    **Note:** The Jenkins container will automatically install Docker CLI on startup using an init script. This is necessary for the pipeline to build Docker images. The first startup may take a minute or two while Docker CLI is being installed.
+
+### Option B: Jenkins Installed Natively on Windows
+
+If you prefer to install Jenkins directly on Windows instead of using Docker:
+
+**Pros:**
+- No Docker container overhead
+- Direct access to Windows file system
+- Easier to debug and access logs
+- Native Windows integration
+
+**Cons:**
+- Requires manual Jenkins installation and configuration
+- Need to ensure Docker Desktop is accessible from Jenkins
+- Path configurations need to be adjusted for Windows
+
+**Installation Steps:**
+
+1. **Download and Install Jenkins:**
+   - Download Jenkins Windows installer from: https://www.jenkins.io/download/
+   - Run the installer (`.msi` file) and follow the setup wizard
+   - Jenkins will run as a Windows service on port 8080
+
+2. **Install Docker Desktop:**
+   - Ensure Docker Desktop is installed and running
+   - Jenkins will use Docker Desktop to build images
+
+3. **Configure Jenkins Workspace:**
+   - Default Jenkins home: `C:\Program Files\Jenkins` or `C:\Users\<YourUser>\.jenkins`
+   - Create a workspace directory, e.g., `C:\Jenkins\workspace\simple-app`
+   - Copy your `app` folder contents to the workspace
+
+4. **Update Jenkinsfile Paths:**
+   - The Jenkinsfile uses Linux paths (`/var/jenkins_home/workspace/...`)
+   - For Windows, you'll need to update the paths in the Jenkinsfile:
+     - Change `K8S_CONFIG_BASE` to a Windows path like `C:\\Jenkins\\workspace\\gitops-config` or use a relative path
+     - Update the `docker build` command to use Windows-style paths
+
+5. **Access Jenkins:**
+   - Open `http://localhost:8080` in your browser
+   - Follow the initial setup wizard
+
+**Note:** If you choose Windows native installation, you'll need to modify the Jenkinsfile paths. See the "Windows Native Installation" section below for a modified Jenkinsfile example.
+
+**Continue with Step 5.2 below for both options (Docker or Windows native).**
+
+### Step 5.2: Configure Jenkins Pipeline (Applies to Both Options)
+
 2. **Access Jenkins:** Go to **`http://localhost:8080`**.
     
 3. **Unlock and Setup:**
     
-    - Find the initial admin password: `docker exec jenkins cat /var/jenkins_home/secrets/initialAdminPassword`
+    - **For Docker:** Find the initial admin password: `docker exec jenkins cat /var/jenkins_home/secrets/initialAdminPassword`
+    - **For Windows Native:** Find the initial admin password in: `C:\Program Files\Jenkins\secrets\initialAdminPassword` or check the Jenkins service logs
         
     - Log in and complete the setup (install suggested plugins).
         
@@ -247,7 +300,32 @@ If "Build with Parameters" still doesn't appear after following Step 5, try thes
 3. Click **Save**, then click **Build Now**.
 4. Check if "Build with Parameters" appears. If it does, replace the script with the full Jenkinsfile content and save again.
 
-**Solution 2: Check for Pipeline Syntax Errors**
+**Solution 2: "docker: not found" Error**
+
+If you see `docker: not found` in the build logs, the Docker CLI installation may have failed:
+
+1. Check the Jenkins container logs to see if Docker CLI was installed:
+   ```bash
+   docker logs jenkins | grep -i docker
+   ```
+
+2. Restart Jenkins to re-run the installation script:
+   ```bash
+   docker compose restart jenkins
+   ```
+
+3. Wait for Jenkins to fully start (check logs: `docker logs -f jenkins`), then try building again.
+
+**Alternative: Install Docker Pipeline Plugin**
+
+You can also install the **Docker Pipeline** plugin from Jenkins UI:
+1. Go to **Manage Jenkins** → **Manage Plugins** → **Available**
+2. Search for "Docker Pipeline" and install it
+3. However, you still need Docker CLI installed in the container for it to work
+
+**Note:** The current setup uses shell commands (`docker build`) which requires Docker CLI. If you prefer using the Docker Pipeline plugin's `docker.build()` method, you'll still need Docker CLI installed in the container.
+
+**Solution 3: Check for Pipeline Syntax Errors**
 
 1. After clicking "Build Now", check the build console output for any syntax errors.
 2. Look for errors related to:
@@ -256,7 +334,7 @@ If "Build with Parameters" still doesn't appear after following Step 5, try thes
    - Syntax issues in the pipeline
 3. Fix any errors and try again.
 
-**Solution 3: Temporarily Use `agent any`**
+**Solution 4: Temporarily Use `agent any`**
 
 If the Docker agent is causing issues, temporarily modify the first line of your pipeline script from:
 ```groovy
@@ -268,7 +346,7 @@ agent any
 ```
 This will use any available Jenkins agent. After parameters are discovered, you can change it back.
 
-**Solution 4: Manual Parameter Configuration (Last Resort)**
+**Solution 5: Manual Parameter Configuration (Last Resort)**
 
 If none of the above work, you can manually configure parameters:
 
@@ -285,7 +363,7 @@ If none of the above work, you can manually configure parameters:
 5. Click **Save**.
 6. Now "Build with Parameters" should appear. You can use the pipeline script as-is, and it will use these manually configured parameters.
 
-**Solution 5: Parameters Are Configured But "Build with Parameters" Link Missing**
+**Solution 6: Parameters Are Configured But "Build with Parameters" Link Missing**
 
 If you can see the parameters in the job configuration under "This project is parameterized" but the "Build with Parameters" link doesn't appear in the UI, try these workarounds:
 
@@ -421,6 +499,182 @@ Access ArgoCD UI at `https://localhost:8080` to:
 - See sync history
 - Manually sync production deployments
 - Monitor deployment health
+
+## Appendix: Windows Native Installation - Modified Jenkinsfile
+
+If you installed Jenkins natively on Windows instead of using Docker, you'll need to modify the Jenkinsfile paths. Here's a Windows-compatible version:
+
+**Key Changes:**
+- Use Windows-style paths or relative paths
+- Adjust the workspace paths to match your Jenkins installation
+- Use PowerShell commands if needed (though bash commands work in Git Bash)
+
+**Example Windows-Compatible Jenkinsfile:**
+
+```groovy
+pipeline {
+    agent any
+
+    parameters {
+        choice(
+            name: 'DEPLOY_ENVIRONMENT',
+            choices: ['dev', 'qa', 'prod'],
+            description: 'Select environment to deploy (dev=MR, qa=tag, prod=manual promotion)'
+        )
+        string(
+            name: 'IMAGE_TAG_OVERRIDE',
+            defaultValue: '',
+            description: 'Optional: Override image tag (leave empty to use auto-generated tag)'
+        )
+    }
+
+    environment {
+        // Image name is now local and does not require a Docker Hub username prefix
+        DOCKER_IMAGE_NAME = 'poc-web-app'
+        
+        // Determine image tag based on trigger type
+        IMAGE_TAG = "${params.IMAGE_TAG_OVERRIDE ?: (env.TAG_NAME ?: "build-${env.BUILD_NUMBER}")}"
+        
+        // Determine target environment
+        TARGET_ENV = "${params.DEPLOY_ENVIRONMENT}"
+        
+        // Path to the GitOps repo - adjust to your actual project path
+        // Option 1: Use absolute Windows path (escape backslashes)
+        K8S_CONFIG_BASE = 'D:\\WORK\\POC\\jenkins-and-argocd\\k8s-config'
+        // Option 2: Use relative path from Jenkins workspace
+        // K8S_CONFIG_BASE = "${env.WORKSPACE}\\..\\..\\k8s-config"
+        // Option 3: Use forward slashes (works on Windows too)
+        // K8S_CONFIG_BASE = 'D:/WORK/POC/jenkins-and-argocd/k8s-config'
+    }
+
+    stages {
+        stage('Detect Deployment Type') {
+            steps {
+                script {
+                    echo "=========================================="
+                    echo "Deployment Type Detection"
+                    echo "=========================================="
+                    
+                    if (env.TAG_NAME) {
+                        echo "Triggered by TAG: ${env.TAG_NAME}"
+                        env.TARGET_ENV = 'qa'
+                    }
+                    else if (env.BRANCH_NAME && env.BRANCH_NAME.startsWith('merge/')) {
+                        echo "Triggered by MERGE REQUEST: ${env.BRANCH_NAME}"
+                        env.TARGET_ENV = 'dev'
+                    }
+                    else if (params.DEPLOY_ENVIRONMENT == 'prod') {
+                        echo "Manual PRODUCTION Promotion"
+                        env.TARGET_ENV = 'prod'
+                    }
+                    else {
+                        echo "Regular build - defaulting to DEV"
+                        env.TARGET_ENV = params.DEPLOY_ENVIRONMENT ?: 'dev'
+                    }
+                    
+                    echo "Final Target Environment: ${env.TARGET_ENV}"
+                    echo "Image Tag: ${IMAGE_TAG}"
+                    echo "=========================================="
+                }
+            }
+        }
+
+        stage('Build Local Docker Image') {
+            steps {
+                script {
+                    echo "Building Docker image for ${env.TARGET_ENV} environment"
+                    echo "Image: ${DOCKER_IMAGE_NAME}:${IMAGE_TAG}"
+                    
+                    // Build the Docker image using shell commands
+                    // Adjust the path to your app directory
+                    sh """
+                        cd D:/WORK/POC/jenkins-and-argocd/app
+                        docker build -t ${DOCKER_IMAGE_NAME}:${IMAGE_TAG} .
+                    """
+                    
+                    echo "✓ Image built locally: ${DOCKER_IMAGE_NAME}:${IMAGE_TAG}"
+                }
+            }
+        }
+
+        stage('Update GitOps Manifest') {
+            steps {
+                script {
+                    // Use forward slashes or escaped backslashes for Windows paths
+                    def deploymentFile = "${K8S_CONFIG_BASE}/${env.TARGET_ENV}/deployment.yaml"
+                    
+                    echo "=========================================="
+                    echo "Updating GitOps Manifest"
+                    echo "=========================================="
+                    echo "Target Environment: ${env.TARGET_ENV}"
+                    echo "Deployment File: ${deploymentFile}"
+                    echo "New Image Tag: ${IMAGE_TAG}"
+                    echo "=========================================="
+                    
+                    // Use PowerShell or Git Bash for sed command
+                    // For Windows, you might need to install Git Bash or use PowerShell
+                    sh """
+                        # Update the image tag in the K8s deployment manifest
+                        echo "Updating ${deploymentFile} with image tag: ${IMAGE_TAG}"
+                        
+                        # Use sed (available in Git Bash) or use PowerShell
+                        sed -i "s|image: ${DOCKER_IMAGE_NAME}:v0.0.0-PLACEHOLDER|image: ${DOCKER_IMAGE_NAME}:${IMAGE_TAG}|g" ${deploymentFile}
+                        sed -i "s|image: ${DOCKER_IMAGE_NAME}:build-[0-9]*|image: ${DOCKER_IMAGE_NAME}:${IMAGE_TAG}|g" ${deploymentFile}
+                        sed -i "s|image: ${DOCKER_IMAGE_NAME}:v[0-9.]*|image: ${DOCKER_IMAGE_NAME}:${IMAGE_TAG}|g" ${deploymentFile}
+                        
+                        echo "✓ GitOps config updated for ${env.TARGET_ENV} environment"
+                        echo "ArgoCD will automatically detect this change and deploy to ${env.TARGET_ENV} namespace"
+                    """
+                }
+            }
+        }
+
+        stage('Production Approval Gate') {
+            when {
+                expression { env.TARGET_ENV == 'prod' }
+            }
+            steps {
+                script {
+                    echo "=========================================="
+                    echo "PRODUCTION DEPLOYMENT APPROVAL REQUIRED"
+                    echo "=========================================="
+                    echo "This is a PRODUCTION deployment!"
+                    echo "Image: ${DOCKER_IMAGE_NAME}:${IMAGE_TAG}"
+                    echo "Environment: ${env.TARGET_ENV}"
+                    echo "=========================================="
+                }
+            }
+        }
+    }
+
+    post {
+        success {
+            echo "=========================================="
+            echo "✓ Deployment Pipeline Completed Successfully"
+            echo "Environment: ${env.TARGET_ENV}"
+            echo "Image: ${DOCKER_IMAGE_NAME}:${IMAGE_TAG}"
+            echo "ArgoCD will automatically sync the changes"
+            echo "=========================================="
+        }
+        failure {
+            echo "=========================================="
+            echo "✗ Deployment Pipeline Failed"
+            echo "Please check the logs above for details"
+            echo "=========================================="
+        }
+        always {
+            echo 'Pipeline finished.'
+        }
+    }
+}
+```
+
+**Important Notes for Windows:**
+- Adjust all paths (`K8S_CONFIG_BASE`, `cd` command) to match your actual project location
+- Ensure Git Bash is installed (for `sed` command) or use PowerShell alternatives
+- Docker Desktop must be running and accessible
+- Use forward slashes (`/`) in paths - they work on Windows too
+- Or escape backslashes (`\\`) if using Windows-style paths
 
 ## Summary
 
