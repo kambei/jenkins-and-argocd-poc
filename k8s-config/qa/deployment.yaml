@@ -21,7 +21,7 @@ spec:
       - name: poc-app-container
         # Image name updated to local-only reference
         image: poc-web-app:v0.0.0-PLACEHOLDER
-        imagePullPolicy: Never  # Use local Docker cache (required for local-only setup)
+        imagePullPolicy: IfNotPresent  # Use local Docker cache if available
         ports:
         - containerPort: 80
 ---
