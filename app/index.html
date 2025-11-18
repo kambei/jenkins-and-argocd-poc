@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Jenkins & ArgoCD POC</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 0;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        .container {
+            background: white;
+            border-radius: 10px;
+            padding: 40px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+            text-align: center;
+            max-width: 600px;
+        }
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+        }
+        .subtitle {
+            color: #666;
+            margin-bottom: 30px;
+        }
+        .info {
+            background: #f5f5f5;
+            border-radius: 5px;
+            padding: 20px;
+            margin: 20px 0;
+        }
+        .status {
+            display: inline-block;
+            padding: 5px 15px;
+            border-radius: 20px;
+            font-weight: bold;
+            margin-top: 10px;
+        }
+        .status.running {
+            background: #4caf50;
+            color: white;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🚀 Jenkins & ArgoCD POC</h1>
+        <p class="subtitle">Multi-Environment CI/CD Pipeline</p>
+        
+        <div class="info">
+            <h2>Application Status</h2>
+            <p>This is a Proof of Concept demonstrating:</p>
+            <ul style="text-align: left; display: inline-block;">
+                <li>Jenkins CI for building Docker images</li>
+                <li>ArgoCD CD for GitOps deployments</li>
+                <li>Multi-environment support (dev, qa, prod)</li>
+                <li>Local-only setup with Docker Desktop</li>
+            </ul>
+            <div class="status running">✓ Running</div>
+        </div>
+        
+        <div class="info">
+            <p><strong>Environment:</strong> Configured via Jenkins pipeline</p>
+            <p><strong>Image Tag:</strong> Set during build</p>
+        </div>
+    </div>
+</body>
+</html>
+
